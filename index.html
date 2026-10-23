@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scam Shield: Simulated Alexa+ Skill</title>
+<style>
+:root{--ink:#0e1a2b;--ink2:#17263c;--cy:#19c3e6;--paper:#f3f6fa;--mut:#8aa0b8;--red:#e5484d;--amb:#f5a524;--grn:#30a46c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:#e8eef6;font:16px/1.5 system-ui,"Segoe UI",sans-serif;min-height:100vh;display:flex;justify-content:center}
+main{width:100%;max-width:760px;display:flex;flex-direction:column;height:100vh}
+header{padding:18px 20px 12px;display:flex;align-items:center;gap:14px;border-bottom:1px solid #22344d}
+.ring{width:34px;height:34px;border-radius:50%;border:5px solid var(--cy);box-shadow:0 0 14px #19c3e688;flex:none}
+.ring.on{animation:p 1s infinite alternate}
+@keyframes p{to{box-shadow:0 0 26px var(--cy)}}
+@media (prefers-reduced-motion:reduce){.ring.on{animation:none}}
+h1{font-size:19px;margin:0}header p{margin:0;color:var(--mut);font-size:13px}
+header label{margin-left:auto;font-size:13px;color:var(--mut);display:flex;gap:6px;align-items:center}
+#log{flex:1;overflow:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px}
+.m{max-width:88%;padding:10px 14px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.u{align-self:flex-end;background:var(--cy);color:#04202a;border-bottom-right-radius:4px}
+.a{align-self:flex-start;background:var(--ink2);border-bottom-left-radius:4px}
+.t{align-self:flex-start;font:12px ui-monospace,Consolas,monospace;color:var(--cy);background:#0a2233;padding:4px 10px;border-radius:8px}
+.card{align-self:stretch;background:var(--paper);color:var(--ink);border-radius:14px;padding:16px;border-left:8px solid var(--c)}
+.card h3{margin:0 0 4px;font-size:18px}
+.bar{height:10px;border-radius:6px;background:#d5deea;overflow:hidden;margin:8px 0 12px}
+.bar i{display:block;height:100%;background:var(--c)}
+.card ul{margin:6px 0 0;padding-left:20px}.card li{margin:3px 0}
+.card .q{color:#4d6076;font-size:14px;margin:10px 0 0}
+.chips{padding:0 20px 8px;display:flex;gap:8px;overflow-x:auto}
+.chips button{flex:none;background:transparent;color:var(--cy);border:1px solid #2b4663;border-radius:18px;padding:5px 12px;font-size:13px;cursor:pointer}
+form{display:flex;gap:8px;padding:8px 20px 18px}
+input[type=text]{flex:1;min-width:0;padding:12px 14px;border-radius:12px;border:1px solid #2b4663;background:var(--ink2);color:#fff;font:inherit}
+button.b{border:0;border-radius:12px;padding:0 16px;font:inherit;font-weight:600;cursor:pointer;background:var(--cy);color:#04202a}
+button.mic{background:var(--ink2);color:var(--cy);border:1px solid #2b4663}
+button.mic.rec{background:var(--red);color:#fff}
+:focus-visible{outline:3px solid var(--amb);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="ring" id="ring"></div>
+  <div><h1>Scam Shield</h1><p>Simulated Alexa+ skill. Paste or say any suspicious call, SMS or WhatsApp message.</p></div>
+  <label><input type="checkbox" id="vo" checked> Voice replies</label>
+</header>
+<div id="log" aria-live="polite"></div>
+<div class="chips" id="chips"></div>
+<form id="f">
+  <button type="button" class="b mic" id="mic" aria-label="Speak">Speak</button>
+  <input type="text" id="in" placeholder="Paste a message, or ask: show my diary, what should I do, alert my family" autocomplete="off">
+  <button class="b">Check</button>
+</form>
+</main>
+<script>
+const KEY='scamshield_v1';
+let S={diary:[],last:null};
+try{S=Object.assign(S,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){}
+const persist=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
+
+/* ---- Tool 1 data: scam signal rules ---- */
+const RULES=[
+[/cbi|police|customs|narcotics|enforcement directorate|\bED\b|digital arrest|court|warrant|trai\b/i,30,'Claims to be an authority','Real agencies never arrest or question anyone over a call or video chat.'],
+[/otp|\bpin\b|cvv|password|card number/i,25,'Asks for a secret code','Banks and apps never ask you to share an OTP, PIN or CVV.'],
+[/anydesk|teamviewer|quicksupport|screen ?share|\.apk/i,30,'Wants remote access or an app install','This lets scammers see and control your phone and bank apps.'],
+[/transfer|send money|pay |upi|gift card|processing fee|registration fee|refund fee|deposit|security amount/i,20,'Asks for money or a fee','Genuine refunds, jobs and prizes do not need an upfront payment.'],
+[/urgent|immediately|within \d+ ?(min|hour|hr)|last warning|today only|right now|final notice/i,15,'Creates panic or a deadline','Scammers rush you so you cannot think or ask anyone.'],
+[/kyc|account (will be )?(blocked|suspended|frozen)|sim (will be )?(blocked|disconnected)|electricity (will be )?(cut|disconnect)/i,20,'Threatens to cut a service','Fake KYC and disconnection threats are among the most common scams.'],
+[/lottery|you (have )?won|prize|work from home|earn .{0,12}(per day|daily)|part[- ]time job|task|like (and|&) (subscribe|review)/i,20,'Too-good-to-be-true offer','Easy money for simple tasks is how job and prize scams start.'],
+[/guaranteed|double your|100% return|crypto|trading group|stock tips|high returns/i,20,'Promises guaranteed returns','No honest investment can guarantee profit.'],
+[/don'?t tell|do not tell|keep (this )?(a )?secret|stay on (the )?(video )?call|do not disconnect|confidential/i,25,'Asks you to keep it secret','Isolating you from family is a classic pressure tactic.'],
+[/https?:\/\/|bit\.ly|tinyurl|click (here|the link)|www\./i,15,'Contains a link','Links in unexpected messages often lead to fake sites.']
+];
+
+/* ---- Tools the agent can call ---- */
+const tools={
+ analyze_message({text}){
+  let score=0,flags=[];
+  RULES.forEach(([re,w,label,why])=>{if(re.test(text)){score+=w;flags.push({label,why})}});
+  score=Math.min(100,score);
+  const level=score>=55?'high':score>=25?'suspicious':'low';
+  return {text,score,level,flags,time:new Date().toLocaleString()};
+ },
+ save_to_diary(r){S.diary.unshift({text:r.text.slice(0,160),score:r.score,level:r.level,time:r.time});S.diary=S.diary.slice(0,50);persist();return {saved:true,total:S.diary.length}},
+ list_diary(){return S.diary},
+ get_action_plan(r){
+  const base=['Do not reply, click links, install apps or pay anything.','Keep screenshots and the phone number as evidence.'];
+  const hi=['Call 1930 (National Cyber Crime Helpline) right away if money or details were shared.','File a report at cybercrime.gov.in.','Call your bank to block cards and UPI if you shared any code or paid.','Tell a family member now. No real agency will ask you to keep it secret.'];
+  const mid=['Contact the company or bank on its official number, not the one in the message.','Report the number as spam in your phone or WhatsApp.'];
+  return r.level==='high'?base.concat(hi):r.level==='suspicious'?base.concat(mid):base;
+ },
+ alert_family(r){
+  return 'ALERT from Scam Shield: '+r.level.toUpperCase()+' risk ('+r.score+'/100) message received. Do not pay or share codes. Summary: "'+r.text.slice(0,90)+'..."';
+ },
+ clear_diary(){S.diary=[];persist();return {cleared:true}}
+};
+
+/* ---- UI helpers ---- */
+const log=document.getElementById('log'),inp=document.getElementById('in'),ring=document.getElementById('ring');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function add(cls,txt){const d=document.createElement('div');d.className=cls;d.textContent=txt;log.appendChild(d);log.scrollTop=log.scrollHeight;return d}
+function trace(name,out){add('t','tool: '+name+' -> '+out)}
+function say(txt){
+  add('m a',txt);
+  if(!document.getElementById('vo').checked||!window.speechSynthesis)return;
+  speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(txt);u.onstart=()=>ring.classList.add('on');u.onend=()=>ring.classList.remove('on');speechSynthesis.speak(u);
+}
+function card(r){
+  const c=r.level==='high'?'var(--red)':r.level==='suspicious'?'var(--amb)':'var(--grn)';
+  const title=r.level==='high'?'High risk: likely a scam':r.level==='suspicious'?'Suspicious: be careful':'Low risk: no clear scam signs';
+  const d=document.createElement('div');d.className='card';d.style.setProperty('--c',c);
+  d.innerHTML='<h3>'+title+'</h3><div>Risk score '+r.score+'/100</div><div class="bar"><i style="width:'+r.score+'%"></i></div>'+
+   (r.flags.length?'<strong>Red flags found</strong><ul>'+r.flags.map(f=>'<li><b>'+esc(f.label)+'.</b> '+esc(f.why)+'</li>').join('')+'</ul>':'<div>No known scam patterns matched. Still verify anything that asks for money.</div>')+
+   '<p class="q">Say "what should I do" for next steps or "alert my family" to warn them.</p>';
+  log.appendChild(d);log.scrollTop=log.scrollHeight;
+}
+
+/* ---- The agent: picks tools, chains them, remembers state ---- */
+function handle(msg){
+  const m=msg.toLowerCase();
+  if(/\b(diary|history|past|log)\b/.test(m)&&msg.length<60){
+    const d=tools.list_diary();trace('list_diary',d.length+' entries');
+    return say(d.length?'You have '+d.length+' saved:\n'+d.slice(0,6).map((e,i)=>(i+1)+'. '+e.level+' ('+e.score+') '+e.time+': '+e.text.slice(0,50)).join('\n'):'Your diary is empty. Paste a suspicious message and I will check it.');
+  }
+  if(/clear|reset|delete/.test(m)&&/diary|history|everything/.test(m)){tools.clear_diary();trace('clear_diary','done');return say('Diary cleared.')}
+  if(/famil|alert|warn (my|them)/.test(m)&&msg.length<60){
+    if(!S.last)return say('I have nothing to warn them about yet. Paste a message first.');
+    const t=tools.alert_family(S.last);trace('alert_family','sent (simulated SMS)');return say('Sent to your family group (simulated):\n'+t);
+  }
+  if(/what (should|do) i do|next step|help me|what now|report/.test(m)&&msg.length<60){
+    if(!S.last)return say('Paste the suspicious message first and I will give you a plan.');
+    const p=tools.get_action_plan(S.last);trace('get_action_plan',p.length+' steps');return say('Here is what to do:\n'+p.map((s,i)=>(i+1)+'. '+s).join('\n'));
+  }
+  const text=msg.replace(/^(is this a scam|check this|check|scam)[:?, ]*/i,'');
+  if(text.length<12)return say('Paste or say the full message, call script or SMS, and I will check it.');
+  const r=tools.analyze_message({text});trace('analyze_message','score '+r.score+', '+r.flags.length+' flags');
+  S.last=r;persist();card(r);
+  if(r.level!=='low'){const s=tools.save_to_diary(r);trace('save_to_diary','entry '+s.total+' saved')}
+  say(r.level==='high'?'Stop. This looks like a scam. Do not pay or share any code. Say "what should I do" for steps.':r.level==='suspicious'?'This looks suspicious. Verify it using the official number before you act.':'I found no clear scam signs, but never share OTPs or pay upfront.');
+}
+
+document.getElementById('f').addEventListener('submit',e=>{e.preventDefault();const v=inp.value.trim();if(!v)return;add('m u',v);inp.value='';handle(v)});
+
+/* ---- Voice input (browser speech recognition) ---- */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition,mic=document.getElementById('mic');
+if(SR){const r=new SR();r.lang='en-IN';
+ r.onresult=e=>{const v=e.results[0][0].transcript;add('m u',v);handle(v)};
+ r.onend=()=>mic.classList.remove('rec');
+ mic.onclick=()=>{mic.classList.add('rec');try{r.start()}catch(x){}}}
+else{mic.style.display='none'}
+
+/* ---- Sample prompts for quick demo ---- */
+const SAMPLES={
+ 'Digital arrest call':'This is CBI officer. A parcel in your name has narcotics. You are under digital arrest. Stay on the video call and do not tell anyone. Transfer security amount via UPI immediately.',
+ 'KYC SMS':'Dear customer, your account will be blocked today. Update KYC immediately: http://bit.ly/kyc-update and share the OTP you receive.',
+ 'Job offer':'Work from home! Earn 5000 per day by liking videos. Pay registration fee 500 to start. Join our trading group for guaranteed returns.',
+ 'Normal message':'Hi, are we still meeting at 6 for dinner tomorrow?',
+ 'Show my diary':'show my diary'
+};
+const chips=document.getElementById('chips');
+Object.keys(SAMPLES).forEach(k=>{const b=document.createElement('button');b.type='button';b.textContent=k;b.onclick=()=>{add('m u',SAMPLES[k]);handle(SAMPLES[k])};chips.appendChild(b)});
+
+say('Hi, I am Scam Shield. Paste or say any suspicious call, SMS or WhatsApp message and I will check it. Try a sample below.');
+</script>
+</body>
+</html>
